@@ -65,7 +65,27 @@ if user_input:
     
     if search_results:
         top_movie = search_results[0]
+        
+        # --- NEW: DISPLAY THE SEARCHED MOVIE DETAILS ---
+        st.write("### 🔍 You Searched For:")
+        search_details = get_movie_details(top_movie['id'])
+        
+        with st.container(border=True):
+            sc1, sc2 = st.columns([1, 3])
+            with sc1:
+                p_path = top_movie.get('poster_path')
+                img = f"https://image.tmdb.org/t/p/w500{p_path}" if p_path else "https://via.placeholder.com/200x300"
+                st.image(img)
+            with sc2:
+                st.header(f"{top_movie['title']} ({top_movie.get('release_date', '')[:4]})")
+                st.write(f"**Rating:** {search_details['rating']} | **Score:** ⭐ {top_movie['vote_average']}")
+                st.write(f"**Director:** {search_details['director']} | **Stars:** {search_details['stars']}")
+                st.write(f"**Summary:** {top_movie['overview']}")
+        
         st.divider()
+        
+        # --- RECOMMENDATIONS SECTION ---
+        st.write("### ✨ Because you liked that, you might love these 'Hidden Gems':")
         
         # Action Buttons
         col_btn1, col_btn2 = st.columns([1, 5])
