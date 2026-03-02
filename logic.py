@@ -5,52 +5,26 @@ import streamlit as st
 from urllib.parse import quote
 from dotenv import load_dotenv
 
+# 1. SETUP & KEYS
 load_dotenv()
 API_KEY = st.secrets["TMDB_API_KEY"] if "TMDB_API_KEY" in st.secrets else os.getenv("TMDB_API_KEY")
 
-# --- ADD THIS HELPER TO THE TOP OF YOUR SCRIPT ---
+# 2. DATA FETCHING FUNCTIONS
 def get_max_popularity():
-    """Fetches the popularity of the #1 trending movie to use as a baseline."""
+    """Fetches the popularity of the #1 trending movie as a baseline."""
     url = f"https://api.themoviedb.org/3/trending/movie/day?api_key={API_KEY}"
     res = requests.get(url).json().get('results', [])
     return res[0]['popularity'] if res else 1000
 
-# --- UPDATE THE DISPLAY SECTION IN YOUR MAIN UI CODE ---
-max_pop = get_max_popularity()
-
-# Inside your 'for' loop where you display the recommendations:
-for _, movie in display_recs.iterrows():
-    details = get_movie_details(movie['id'])
-    
-    # Calculate popularity as a percentage of the current top trending movie
-    pop_percent = min(100, int((movie['popularity'] / max_pop) * 100))
-    
-    with st.container(border=True):
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            poster_path = movie.get('poster_path')
-            img_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else "https://via.placeholder.com/200x300"
-            st.image(img_url)
-        with col2:
-            st.header(movie['title'])
-            # Updated line with Percentage and a visual progress bar
-            st.write(f"**Rating:** {details['rating']} | **Score:** ⭐ {movie['vote_average']}")
-            st.write(f"**Trending Score:** {pop_percent}%")
-            st.progress(pop_percent / 100) # Adds a nice visual bar!
-            
-            st.write(f"**Director:** {details['director']}")
-            st.write(f"**Summary:** {movie['overview']}")
-
-# --- DATA FETCHING FUNCTIONS ---
 def get_movie_details(movie_id):
-    """Fetches Credits (Director, Cast) and Release Dates (Content Rating)"""
-    # 1. Get Credits
-    credits_url = f"https://api.themoviedb.org/3/movie/{movie_id}/credits?api_key={API_KEY}"
-    credits = requests.get(credits_url).json()
+    """Fetches Credits (Director, Stars) and US Parental Rating."""
+    # Get Credits
+    cred_url = f"https://api.themoviedb.org/3/movie/{movie_id}/credits?api_key={API_KEY}"
+    credits = requests.get(cred_url).json()
     
-    # 2. Get Release Dates (for US parental rating like PG-13, R)
-    release_url = f"https://api.themoviedb.org/3/movie/{movie_id}/release_dates?api_key={API_KEY}"
-    releases = requests.get(release_url).json().get('results', [])
+    # Get Parental Rating (Certification)
+    rel_url = f"https://api.themoviedb.org/3/movie/{movie_id}/release_dates?api_key={API_KEY}"
+    releases = requests.get(rel_url).json().get('results', [])
     
     rating = "N/A"
     for r in releases:
@@ -65,25 +39,26 @@ def get_movie_details(movie_id):
     return {"director": director, "writers": ", ".join(writers), "stars": ", ".join(stars), "rating": rating}
 
 def get_recommendations(movie_id):
+    """Gets similar movies and applies the custom Gem Score logic."""
     url = f"https://api.themoviedb.org/3/movie/{movie_id}/similar?api_key={API_KEY}"
     res = requests.get(url).json().get('results', [])
-    if not res: return []
+    if not res: return pd.DataFrame()
     
     df = pd.DataFrame(res)
-    # Custom Gem Score logic
     df['gem_score'] = (df['vote_average'] * 5) - (df['popularity'] * 0.1)
     return df.sort_values(by='gem_score', ascending=False)
 
-# --- STREAMLIT UI ---
+# 3. STREAMLIT UI SETUP
 st.set_page_config(page_title="Movie Gem Recommender", layout="wide")
 st.title("🎬 Movie Gem Recommender")
 
-# Session state for shuffling/refreshing
 if 'random_seed' not in st.session_state:
     st.session_state.random_seed = 0
 
+max_pop = get_max_popularity()
 user_input = st.text_input("Enter a movie you loved:", placeholder="e.g. Interstellar")
 
+# 4. MAIN APP LOGIC
 if user_input:
     search_url = f"https://api.themoviedb.org/3/search/movie?api_key={API_KEY}&query={quote(user_input)}"
     search_results = requests.get(search_url).json().get('results', [])
@@ -98,30 +73,31 @@ if user_input:
             if st.button("🔄 Refresh List"):
                 st.session_state.random_seed += 5
         
-        # Get all recommendations and slice based on "Refresh"
         all_recs = get_recommendations(top_movie['id'])
-        start_idx = st.session_state.random_seed % max(1, len(all_recs))
-        display_recs = all_recs.iloc[start_idx : start_idx + 5]
+        
+        if not all_recs.empty:
+            start_idx = st.session_state.random_seed % len(all_recs)
+            display_recs = all_recs.iloc[start_idx : start_idx + 5]
 
-        if not display_recs.empty:
             for _, movie in display_recs.iterrows():
                 details = get_movie_details(movie['id'])
+                pop_percent = min(100, int((movie['popularity'] / max_pop) * 100))
                 
-                # Create a "Card" for each movie
                 with st.container(border=True):
-                    col1, col2 = st.columns([1, 3])
-                    with col1:
-                        poster_path = movie.get('poster_path')
-                        img_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else "https://via.placeholder.com/200x300"
-                        st.image(img_url)
-                    with col2:
+                    c1, c2 = st.columns([1, 3])
+                    with c1:
+                        p_path = movie.get('poster_path')
+                        img = f"https://image.tmdb.org/t/p/w500{p_path}" if p_path else "https://via.placeholder.com/200x300"
+                        st.image(img)
+                    with c2:
                         st.header(movie['title'])
-                        st.write(f"**Rating:** {details['rating']} | **Popularity:** {int(movie['popularity'])} | **Score:** ⭐ {movie['vote_average']}")
-                        st.write(f"**Director:** {details['director']}")
-                        st.write(f"**Writers:** {details['writers']}")
-                        st.write(f"**Stars:** {details['stars']}")
+                        st.write(f"**Rating:** {details['rating']} | **Score:** ⭐ {movie['vote_average']}")
+                        st.write(f"**Trending Score:** {pop_percent}%")
+                        st.progress(pop_percent / 100)
+                        
+                        st.write(f"**Director:** {details['director']} | **Stars:** {details['stars']}")
                         st.write(f"**Summary:** {movie['overview']}")
         else:
-            st.info("No more recommendations found. Try a different movie!")
+            st.info("No recommendations found for this movie.")
     else:
         st.error("Movie not found!")
