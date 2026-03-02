@@ -8,6 +8,39 @@ from dotenv import load_dotenv
 load_dotenv()
 API_KEY = st.secrets["TMDB_API_KEY"] if "TMDB_API_KEY" in st.secrets else os.getenv("TMDB_API_KEY")
 
+# --- ADD THIS HELPER TO THE TOP OF YOUR SCRIPT ---
+def get_max_popularity():
+    """Fetches the popularity of the #1 trending movie to use as a baseline."""
+    url = f"https://api.themoviedb.org/3/trending/movie/day?api_key={API_KEY}"
+    res = requests.get(url).json().get('results', [])
+    return res[0]['popularity'] if res else 1000
+
+# --- UPDATE THE DISPLAY SECTION IN YOUR MAIN UI CODE ---
+max_pop = get_max_popularity()
+
+# Inside your 'for' loop where you display the recommendations:
+for _, movie in display_recs.iterrows():
+    details = get_movie_details(movie['id'])
+    
+    # Calculate popularity as a percentage of the current top trending movie
+    pop_percent = min(100, int((movie['popularity'] / max_pop) * 100))
+    
+    with st.container(border=True):
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            poster_path = movie.get('poster_path')
+            img_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else "https://via.placeholder.com/200x300"
+            st.image(img_url)
+        with col2:
+            st.header(movie['title'])
+            # Updated line with Percentage and a visual progress bar
+            st.write(f"**Rating:** {details['rating']} | **Score:** ⭐ {movie['vote_average']}")
+            st.write(f"**Trending Score:** {pop_percent}%")
+            st.progress(pop_percent / 100) # Adds a nice visual bar!
+            
+            st.write(f"**Director:** {details['director']}")
+            st.write(f"**Summary:** {movie['overview']}")
+
 # --- DATA FETCHING FUNCTIONS ---
 def get_movie_details(movie_id):
     """Fetches Credits (Director, Cast) and Release Dates (Content Rating)"""
