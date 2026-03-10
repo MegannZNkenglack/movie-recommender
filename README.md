@@ -4,7 +4,7 @@ A high-performance movie discovery engine built with **Python** and **Streamlit*
 
 Unlike typical recommenders that surface the most popular blockbusters, this engine prioritizes **quality, relevance, and intersection of user tastes**.
 
-🔗 Live Demo: https://your-streamlit-link-here
+🔗 Live Demo: [https://your-streamlit-link-here](https://movie-gem-recommender.streamlit.app/)
 
 ---
 
