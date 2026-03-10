@@ -9,15 +9,13 @@ from dotenv import load_dotenv
 load_dotenv()
 API_KEY = st.secrets["TMDB_API_KEY"] if "TMDB_API_KEY" in st.secrets else os.getenv("TMDB_API_KEY")
 
-# --- 2. SESSION STATE HELPERS ---
-# Initialize keys if they don't exist yet to prevent the "StreamlitAPIException"
+# 2. SESSION STATE HELPERS
 for i in range(1, 6):
     if f"m{i}" not in st.session_state:
         st.session_state[f"m{i}"] = ""
 
 def reset_form():
     """Clears all movie input fields in the session state."""
-    # This now works because the keys were initialized above
     st.session_state["m1"] = ""
     st.session_state["m2"] = ""
     st.session_state["m3"] = ""
@@ -55,7 +53,6 @@ def get_recommendations(movie_id):
     return df
 
 def get_movie_trailer(movie_id):
-    """Fetches the YouTube trailer link for a movie."""
     url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos?api_key={API_KEY}"
     res = requests.get(url).json().get('results', [])
     for video in res:
@@ -71,11 +68,10 @@ st.caption("Enter 3 to 5 movies to get a more accurate feel for your taste.")
 
 max_pop = get_max_popularity()
 
-# 5. THE INPUT FORM (Consolidated)
+# 5. THE INPUT FORM
 with st.form("movie_form"):
     col1, col2 = st.columns(2)
     with col1:
-        # We MUST use 'key' here so the reset function can find them
         m1 = st.text_input("Movie 1", placeholder="e.g. Inception", key="m1")
         m2 = st.text_input("Movie 2", placeholder="e.g. The Dark Knight", key="m2")
         m3 = st.text_input("Movie 3", placeholder="e.g. Interstellar", key="m3")
@@ -85,12 +81,11 @@ with st.form("movie_form"):
     
     submit_button = st.form_submit_button("✨ Generate Recommendations")
 
-# Reset button placed neatly below the form
 if st.button("🗑️ Clear All Inputs"):
     reset_form()
     st.rerun()
 
-# --- 6. PROCESSING LOGIC ---
+# 6. PROCESSING LOGIC
 if submit_button:
     user_list = [m for m in [m1, m2, m3, m4, m5] if m.strip()]
     
@@ -99,7 +94,17 @@ if submit_button:
     else:
         all_recs_list = []
         with st.status("Analyzing your taste...", expanded=True) as status:
-            # ... (Searching logic remains the same)
+            for movie_name in user_list:
+                st.write(f"Searching for **{movie_name}**...")
+                # Fetching the search results
+                search_url = f"https://api.themoviedb.org/3/search/movie?api_key={API_KEY}&query={quote(movie_name)}"
+                search_results = requests.get(search_url).json().get('results', [])
+                
+                if search_results:
+                    # Taking the top search result and finding similar movies
+                    recs = get_recommendations(search_results[0]['id'])
+                    if not recs.empty:
+                        all_recs_list.append(recs)
             status.update(label="Analysis complete!", state="complete", expanded=False)
 
         if all_recs_list:
@@ -109,13 +114,9 @@ if submit_button:
             st.divider()
             st.write(f"### ✨ Your Custom Movie Feed")
             
-            # THE LOOP STARTS HERE
             for _, movie in combined_df.head(15).iterrows():
                 details = get_movie_details(movie['id'])
-                
-                # Fetch trailer specifically for THIS movie in the loop
                 trailer_url = get_movie_trailer(movie['id'])
-                
                 pop_percent = min(100, int((movie['popularity'] / max_pop) * 100))
                 
                 with st.container(border=True):
@@ -132,6 +133,7 @@ if submit_button:
                         st.write(f"**Director:** {details['director']} | **Stars:** {details['stars']}")
                         st.write(f"**Summary:** {movie['overview']}")
                         
-                        # Show the button only if a trailer was found
                         if trailer_url:
                             st.link_button("🎥 Watch Trailer", trailer_url)
+        else:
+            st.error("Could not find any recommendations based on those movies. Try different titles!")
