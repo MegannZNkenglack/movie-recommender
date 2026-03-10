@@ -9,11 +9,20 @@ from dotenv import load_dotenv
 load_dotenv()
 API_KEY = st.secrets["TMDB_API_KEY"] if "TMDB_API_KEY" in st.secrets else os.getenv("TMDB_API_KEY")
 
-# 2. SESSION STATE HELPERS
+# --- 2. SESSION STATE HELPERS ---
+# Initialize keys if they don't exist yet to prevent the "StreamlitAPIException"
+for i in range(1, 6):
+    if f"m{i}" not in st.session_state:
+        st.session_state[f"m{i}"] = ""
+
 def reset_form():
     """Clears all movie input fields in the session state."""
-    for i in range(1, 6):
-        st.session_state[f"m{i}"] = ""
+    # This now works because the keys were initialized above
+    st.session_state["m1"] = ""
+    st.session_state["m2"] = ""
+    st.session_state["m3"] = ""
+    st.session_state["m4"] = ""
+    st.session_state["m5"] = ""
 
 # 3. DATA FETCHING FUNCTIONS
 def get_max_popularity():
@@ -44,6 +53,15 @@ def get_recommendations(movie_id):
     df = pd.DataFrame(res)
     df['gem_score'] = (df['vote_average'] * 5) - (df['popularity'] * 0.1)
     return df
+
+def get_movie_trailer(movie_id):
+    """Fetches the YouTube trailer link for a movie."""
+    url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos?api_key={API_KEY}"
+    res = requests.get(url).json().get('results', [])
+    for video in res:
+        if video['type'] == 'Trailer' and video['site'] == 'YouTube':
+            return f"https://www.youtube.com/watch?v={video['key']}"
+    return None
 
 # 4. STREAMLIT UI SETUP
 st.set_page_config(page_title="Movie Gem Recommender", layout="wide")
@@ -117,3 +135,8 @@ if submit_button:
                         st.write(f"**Summary:** {movie['overview']}")
         else:
             st.error("Could not find any recommendations. Try different titles!")
+
+# Inside your loop, right under st.write(f"**Summary:** {movie['overview']}")
+trailer_url = get_movie_trailer(movie['id'])
+if trailer_url:
+    st.link_button("🎥 Watch Trailer", trailer_url)
