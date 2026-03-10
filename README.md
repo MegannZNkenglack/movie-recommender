@@ -153,7 +153,6 @@ Enable fast processing across **large recommendation datasets**.
 
 # ⚙️ Setup & Installation
 
-## ⚙️ Setup & Installation
 ## 1. Clone the repository:
    ```bash
    git clone [https://github.com/MegannZNkenglack/movie-recommender.git](https://github.com/MegannZNkenglack/movie-recommender.git)
