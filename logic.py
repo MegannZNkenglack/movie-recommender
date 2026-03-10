@@ -9,6 +9,13 @@ from dotenv import load_dotenv
 load_dotenv()
 API_KEY = st.secrets["TMDB_API_KEY"] if "TMDB_API_KEY" in st.secrets else os.getenv("TMDB_API_KEY")
 
+GENRE_MAP = {
+    28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
+    99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History",
+    27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Sci-Fi",
+    10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western"
+}
+
 # 2. SESSION STATE HELPERS
 for i in range(1, 6):
     if f"m{i}" not in st.session_state:
@@ -85,7 +92,7 @@ if st.button("🗑️ Clear All Inputs"):
     reset_form()
     st.rerun()
 
-# 6. PROCESSING LOGIC
+# --- 6. PROCESSING LOGIC ---
 if submit_button:
     user_list = [m for m in [m1, m2, m3, m4, m5] if m.strip()]
     
@@ -96,44 +103,77 @@ if submit_button:
         with st.status("Analyzing your taste...", expanded=True) as status:
             for movie_name in user_list:
                 st.write(f"Searching for **{movie_name}**...")
-                # Fetching the search results
                 search_url = f"https://api.themoviedb.org/3/search/movie?api_key={API_KEY}&query={quote(movie_name)}"
                 search_results = requests.get(search_url).json().get('results', [])
                 
                 if search_results:
-                    # Taking the top search result and finding similar movies
                     recs = get_recommendations(search_results[0]['id'])
                     if not recs.empty:
                         all_recs_list.append(recs)
             status.update(label="Analysis complete!", state="complete", expanded=False)
 
         if all_recs_list:
-            combined_df = pd.concat(all_recs_list).drop_duplicates(subset='id')
+            # Combine all results into one big DataFrame
+            combined_df = pd.concat(all_recs_list)
+
+            # --- NEW: WEIGHTED MULTI-MATCH LOGIC ---
+            # Count how many times each movie ID appeared across all 3-5 searches
+            match_counts = combined_df['id'].value_counts().to_dict()
+            
+            # Remove duplicates so we have one row per movie
+            combined_df = combined_df.drop_duplicates(subset='id').copy()
+            
+            # Apply a "Loyalty Bonus" to the Gem Score if it matched multiple favorites
+            combined_df['match_count'] = combined_df['id'].map(match_counts)
+            combined_df['gem_score'] += (combined_df['match_count'] - 1) * 5 
+
+            # --- NEW: SIDEBAR GENRE FILTER ---
+            st.sidebar.header("🎯 Filter Results")
+            selected_genres = st.sidebar.multiselect(
+                "Filter by Genre:", 
+                options=list(GENRE_MAP.values()),
+                default=[]
+            )
+
+            if selected_genres:
+                selected_ids = [gid for gid, name in GENRE_MAP.items() if name in selected_genres]
+                # Filter rows where at least one genre ID matches the selection
+                combined_df = combined_df[combined_df['genre_ids'].apply(lambda x: any(i in x for i in selected_ids))]
+
+            # Final Sort: Show most popular first as requested
             combined_df = combined_df.sort_values(by='popularity', ascending=False)
 
             st.divider()
             st.write(f"### ✨ Your Custom Movie Feed")
             
-            for _, movie in combined_df.head(15).iterrows():
-                details = get_movie_details(movie['id'])
-                trailer_url = get_movie_trailer(movie['id'])
-                pop_percent = min(100, int((movie['popularity'] / max_pop) * 100))
-                
-                with st.container(border=True):
-                    c1, c2 = st.columns([1, 3])
-                    with c1:
-                        p_path = movie.get('poster_path')
-                        img = f"https://image.tmdb.org/t/p/w500{p_path}" if p_path else "https://via.placeholder.com/200x300"
-                        st.image(img)
-                    with c2:
-                        st.header(movie['title'])
-                        st.write(f"**Rating:** {details['rating']} | **Score:** ⭐ {movie['vote_average']}")
-                        st.write(f"**Popularity:** {pop_percent}%")
-                        st.progress(pop_percent / 100)
-                        st.write(f"**Director:** {details['director']} | **Stars:** {details['stars']}")
-                        st.write(f"**Summary:** {movie['overview']}")
-                        
-                        if trailer_url:
-                            st.link_button("🎥 Watch Trailer", trailer_url)
+            if combined_df.empty:
+                st.info("No movies match those specific filters. Try selecting more genres!")
+            else:
+                # Loop through the top 15 results
+                for _, movie in combined_df.head(15).iterrows():
+                    details = get_movie_details(movie['id'])
+                    trailer_url = get_movie_trailer(movie['id'])
+                    pop_percent = min(100, int((movie['popularity'] / max_pop) * 100))
+                    
+                    with st.container(border=True):
+                        c1, c2 = st.columns([1, 3])
+                        with c1:
+                            p_path = movie.get('poster_path')
+                            img = f"https://image.tmdb.org/t/p/w500{p_path}" if p_path else "https://via.placeholder.com/200x300"
+                            st.image(img)
+                        with c2:
+                            # Show a badge if it's a "Top Match" (found in multiple searches)
+                            title_prefix = "🔥 " if movie['match_count'] > 1 else ""
+                            st.header(f"{title_prefix}{movie['title']}")
+                            
+                            st.write(f"**Rating:** {details['rating']} | **Score:** ⭐ {movie['vote_average']}")
+                            st.write(f"**Popularity:** {pop_percent}%")
+                            st.progress(pop_percent / 100)
+                            
+                            st.write(f"**Director:** {details['director']} | **Stars:** {details['stars']}")
+                            st.write(f"**Summary:** {movie['overview']}")
+                            
+                            if trailer_url:
+                                st.link_button("🎥 Watch Trailer", trailer_url)
         else:
             st.error("Could not find any recommendations based on those movies. Try different titles!")
