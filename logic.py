@@ -18,11 +18,9 @@ def get_max_popularity():
 
 def get_movie_details(movie_id):
     """Fetches Credits (Director, Stars) and US Parental Rating."""
-    # Get Credits
     cred_url = f"https://api.themoviedb.org/3/movie/{movie_id}/credits?api_key={API_KEY}"
     credits = requests.get(cred_url).json()
     
-    # Get Parental Rating (Certification)
     rel_url = f"https://api.themoviedb.org/3/movie/{movie_id}/release_dates?api_key={API_KEY}"
     releases = requests.get(rel_url).json().get('results', [])
     
@@ -33,10 +31,8 @@ def get_movie_details(movie_id):
             break
 
     director = next((m['name'] for m in credits.get('crew', []) if m['job'] == 'Director'), "Unknown")
-    writers = [m['name'] for m in credits.get('crew', []) if m['job'] in ['Writer', 'Screenplay']][:2]
     stars = [m['name'] for m in credits.get('cast', [])][:3]
-    
-    return {"director": director, "writers": ", ".join(writers), "stars": ", ".join(stars), "rating": rating}
+    return {"director": director, "stars": ", ".join(stars), "rating": rating}
 
 def get_recommendations(movie_id):
     """Gets similar movies and applies the custom Gem Score logic."""
@@ -45,61 +41,65 @@ def get_recommendations(movie_id):
     if not res: return pd.DataFrame()
     
     df = pd.DataFrame(res)
+    # Your proprietary Gem Score logic
     df['gem_score'] = (df['vote_average'] * 5) - (df['popularity'] * 0.1)
-    return df.sort_values(by='gem_score', ascending=False)
+    return df
 
 # 3. STREAMLIT UI SETUP
 st.set_page_config(page_title="Movie Gem Recommender", layout="wide")
 st.title("🎬 Movie Gem Recommender")
-
-if 'random_seed' not in st.session_state:
-    st.session_state.random_seed = 0
+st.markdown("### Step 1: Tell us your favorites")
+st.caption("Enter 3 to 5 movies to get a more accurate feel for your taste.")
 
 max_pop = get_max_popularity()
-user_input = st.text_input("Enter a movie you loved:", placeholder="e.g. Interstellar")
 
-# 4. MAIN APP LOGIC
-if user_input:
-    search_url = f"https://api.themoviedb.org/3/search/movie?api_key={API_KEY}&query={quote(user_input)}"
-    search_results = requests.get(search_url).json().get('results', [])
+# 4. MULTI-MOVIE INPUT FORM
+with st.form("movie_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+        m1 = st.text_input("Movie 1", placeholder="e.g. Inception")
+        m2 = st.text_input("Movie 2", placeholder="e.g. The Dark Knight")
+        m3 = st.text_input("Movie 3", placeholder="e.g. Interstellar")
+    with col2:
+        m4 = st.text_input("Movie 4 (Optional)")
+        m5 = st.text_input("Movie 5 (Optional)")
     
-    if search_results:
-        top_movie = search_results[0]
-        
-        # --- NEW: DISPLAY THE SEARCHED MOVIE DETAILS ---
-        st.write("### 🔍 You Searched For:")
-        search_details = get_movie_details(top_movie['id'])
-        
-        with st.container(border=True):
-            sc1, sc2 = st.columns([1, 3])
-            with sc1:
-                p_path = top_movie.get('poster_path')
-                img = f"https://image.tmdb.org/t/p/w500{p_path}" if p_path else "https://via.placeholder.com/200x300"
-                st.image(img)
-            with sc2:
-                st.header(f"{top_movie['title']} ({top_movie.get('release_date', '')[:4]})")
-                st.write(f"**Rating:** {search_details['rating']} | **Score:** ⭐ {top_movie['vote_average']}")
-                st.write(f"**Director:** {search_details['director']} | **Stars:** {search_details['stars']}")
-                st.write(f"**Summary:** {top_movie['overview']}")
-        
-        st.divider()
-        
-        # --- RECOMMENDATIONS SECTION ---
-        st.write("### ✨ Because you liked that, you might love these 'Hidden Gems':")
-        
-        # Action Buttons
-        col_btn1, col_btn2 = st.columns([1, 5])
-        with col_btn1:
-            if st.button("🔄 Refresh List"):
-                st.session_state.random_seed += 5
-        
-        all_recs = get_recommendations(top_movie['id'])
-        
-        if not all_recs.empty:
-            start_idx = st.session_state.random_seed % len(all_recs)
-            display_recs = all_recs.iloc[start_idx : start_idx + 5]
+    # This is the "Enter" button you requested
+    submit_button = st.form_submit_button("✨ Generate Recommendations")
 
-            for _, movie in display_recs.iterrows():
+# 5. PROCESSING LOGIC
+if submit_button:
+    user_list = [m for m in [m1, m2, m3, m4, m5] if m.strip()]
+    
+    if len(user_list) < 3:
+        st.warning("Please enter at least 3 movies for a better 'feel' of your taste!")
+    else:
+        all_recs_list = []
+        
+        with st.status("Analyzing your taste...", expanded=True) as status:
+            for movie_name in user_list:
+                st.write(f"Searching for {movie_name}...")
+                search_url = f"https://api.themoviedb.org/3/search/movie?api_key={API_KEY}&query={quote(movie_name)}"
+                search_results = requests.get(search_url).json().get('results', [])
+                
+                if search_results:
+                    recs = get_recommendations(search_results[0]['id'])
+                    if not recs.empty:
+                        all_recs_list.append(recs)
+            status.update(label="Analysis complete!", state="complete", expanded=False)
+
+        if all_recs_list:
+            # Combine all lists and remove duplicates
+            combined_df = pd.concat(all_recs_list).drop_duplicates(subset='id')
+            
+            # --- SORTING LOGIC ---
+            # Popular movies first, then less popular (gems) toward the end
+            combined_df = combined_df.sort_values(by='popularity', ascending=False)
+
+            st.divider()
+            st.write(f"### ✨ Your Custom Movie Feed")
+            
+            for _, movie in combined_df.head(15).iterrows():
                 details = get_movie_details(movie['id'])
                 pop_percent = min(100, int((movie['popularity'] / max_pop) * 100))
                 
@@ -112,12 +112,10 @@ if user_input:
                     with c2:
                         st.header(movie['title'])
                         st.write(f"**Rating:** {details['rating']} | **Score:** ⭐ {movie['vote_average']}")
-                        st.write(f"**Trending Score:** {pop_percent}%")
+                        st.write(f"**Popularity (Percentage):** {pop_percent}%")
                         st.progress(pop_percent / 100)
                         
                         st.write(f"**Director:** {details['director']} | **Stars:** {details['stars']}")
                         st.write(f"**Summary:** {movie['overview']}")
         else:
-            st.info("No recommendations found for this movie.")
-    else:
-        st.error("Movie not found!")
+            st.error("Could not find any recommendations based on those movies. Try different titles!")
